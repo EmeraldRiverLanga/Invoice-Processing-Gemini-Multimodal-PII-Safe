@@ -1,0 +1,7 @@
+{
+    "from": "billing@stanfordplumbing.com",
+    "to": "accounting@homeowner.com",
+    "subject": "Invoice #INV02081 from Stanford Plumbing & Heating",
+    "date": "2018-11-11",
+    "body": "Please find attached invoice for the kitchen renovation work completed this month. Payment is due by December 1st as agreed."
+}

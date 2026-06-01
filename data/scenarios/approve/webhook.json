@@ -1,0 +1,9 @@
+{
+    "event": "invoice.received",
+    "timestamp": "2018-11-11T10:00:00Z",
+    "invoice_id": "INV02081",
+    "sender": "Stanford Plumbing & Heating",
+    "amount_expected": 2844.80,
+    "currency": "USD",
+    "status": "pending_review"
+}

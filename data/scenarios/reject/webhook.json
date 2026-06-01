@@ -1,0 +1,9 @@
+{
+    "event": "invoice.received",
+    "timestamp": "2024-11-15T14:32:00Z",
+    "invoice_id": "INV-2024-047",
+    "sender": "DevSolutions Inc",
+    "amount_expected": 4365.68,
+    "currency": "USD",
+    "status": "pending_review"
+}

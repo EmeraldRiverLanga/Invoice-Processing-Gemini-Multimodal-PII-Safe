@@ -1,0 +1,6 @@
+supplier_id,name,payment_days,trusted
+SUP001,DevSolutions Inc,30,True
+SUP002,WebAgency Ltd,14,True
+SUP003,DesignStudio Co,30,False
+SUP004,CloudHost Corp,7,True
+SUP005,Stanford Plumbing & Heating,30,True

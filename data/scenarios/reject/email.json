@@ -1,0 +1,7 @@
+{
+    "from": "client@techcorp.com",
+    "to": "accounting@devsolutions.com",
+    "subject": "Invoice #INV-2024-047 — please confirm receipt",
+    "date": "2024-11-15",
+    "body": "Hello, please find attached the invoice for November services. Kindly verify the amounts and confirm receipt."
+}
