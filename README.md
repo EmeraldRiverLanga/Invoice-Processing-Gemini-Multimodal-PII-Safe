@@ -15,7 +15,7 @@ The mapping table stays in memory and is used to re-identify the model's
 response after it returns. The external AI never sees the original
 email addresses, phone numbers, or other PII.
 
-![Both scenarios running in the terminal — approve produces APPROVE, reject produces REVIEW](screenshots/terminal_both_scenarios.jpg)
+![Both scenarios running in the terminal — approve produces APPROVE, reject produces REVIEW](screenshots/terminal_both_scenarios.JPG)
 
 The project demonstrates that an AI-driven document pipeline can be
 *both* useful and privacy-respecting — and that the AI is treated as one
