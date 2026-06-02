@@ -2,32 +2,35 @@
 
 ## Overview
 
-A production-style invoice processing pipeline that combines three data
-sources (email metadata, webhook payload, supplier database) with an
-invoice image, sends them through the Gemini multimodal AI model for fact
-extraction, and then validates the extracted facts **independently** in
-Python against the same data sources to produce an auditable
-`APPROVE` / `REVIEW` / `REJECT` decision.
+An invoice processing pipeline that combines three data sources (email
+metadata, webhook payload, supplier list) with an invoice image, calls the
+Gemini 2.5 Flash multimodal model to extract data from the image, and then
+validates the extracted facts **independently** in Python against the same
+data sources to produce an auditable `APPROVE` / `REVIEW` / `REJECT`
+decision.
 
-Before any data leaves the local system, personally identifiable
-information (PII) in text fields is replaced with placeholder tokens.
-The mapping table stays in memory and is used to re-identify the model's
-response after it returns. The external AI never sees the original
-email addresses, phone numbers, or other PII.
+![Both scenarios running in the terminal — approve produces APPROVE, reject produces REVIEW. Note the (.venv) prefix indicating the project's isolated virtual environment.](screenshots/terminal_both_scenarios.JPG)
 
-![Both scenarios running in the terminal — approve produces APPROVE, reject produces REVIEW](screenshots/terminal_both_scenarios.JPG)
+The project has two core ideas.
 
-The project demonstrates that an AI-driven document pipeline can be
-*both* useful and privacy-respecting — and that the AI is treated as one
-component in a larger system, not as the decision-maker.
+**First — the AI is one component in a larger system, not the
+decision-maker.** The model only extracts facts from the image. Decisions
+are made by deterministic (predictable and repeatable) Python code.
+
+**Second — it demonstrates the principle of PII anonymization on text
+data.** Before any text is sent to the external AI, email addresses and
+phone numbers are replaced with placeholder tokens, and re-identified after
+the model responds. This is a deliberate, scoped demonstration — see
+[Scope and Limitations](#scope-and-limitations) for what it does *not*
+cover, which matters as much as what it does.
 
 ## Technologies Used
 
 - **Python 3.11** — core language
 - **Requests** — HTTP calls to the OpenRouter API
-- **Pandas** — supplier database loading and lookups
+- **Pandas** — supplier list loading and lookups
 - **python-dotenv** — environment variable management for API keys
-- **Gemini 2.5 Flash** (via OpenRouter) — multimodal LLM for image + text extraction
+- **Gemini 2.5 Flash** (via OpenRouter) — multimodal model for image + text extraction
 - **argparse** — command-line interface
 - **pathlib** — location-independent file paths
 - **VS Code** — development environment
@@ -49,7 +52,13 @@ pip install -r requirements.txt
 
 ### Add your API key
 
-Create a `.env` file in the project root:
+Copy `.env.example` to `.env` and add your OpenRouter API key:
+
+```bash
+copy .env.example .env          # Windows
+```
+
+Then edit `.env` and replace the placeholder with your actual key:
 
 ```
 OPENROUTER_API_KEY=your-openrouter-api-key-here
@@ -76,13 +85,13 @@ invoice-processing-gemini/
 ├── src/
 │   ├── __init__.py
 │   ├── sources.py          # Data source loaders (email, webhook, suppliers, image)
-│   ├── anonymizer.py       # PII detection and pseudonymization
+│   ├── anonymizer.py       # PII detection and pseudonymization (text only)
 │   ├── gemini_client.py    # Gemini API client (multimodal request building)
 │   ├── validation.py       # Independent validation against sources
 │   └── main.py             # Pipeline entry point with argparse CLI
 ├── data/
 │   ├── invoice.png         # Invoice image (shared across scenarios)
-│   ├── suppliers.csv       # Supplier database (shared)
+│   ├── suppliers.csv       # Supplier list (shared)
 │   └── scenarios/
 │       ├── approve/        # Email + webhook that match the invoice
 │       │   ├── email.json
@@ -91,7 +100,8 @@ invoice-processing-gemini/
 │           ├── email.json
 │           └── webhook.json
 ├── output/                 # Timestamped result files (auto-created)
-├── .env                    # API key (gitignored)
+├── screenshots/
+├── .env.example
 ├── .gitignore
 ├── requirements.txt
 └── README.md
@@ -110,12 +120,13 @@ invoice-processing-gemini/
          │
          ▼
 ┌──────────────────┐
-│  Anonymize PII   │   ← replaces emails / phones with <EMAIL_1> tokens
+│  Anonymize text  │   ← emails / phones in text fields → <EMAIL_1> tokens
+│  PII             │     (the image is NOT anonymized — see Limitations)
 └────────┬─────────┘
          │
          ▼
 ┌──────────────────┐
-│  Gemini 2.5      │   ← receives ANONYMIZED text + the image
+│  Gemini 2.5      │   ← receives anonymized text + the image
 │  Flash           │
 └────────┬─────────┘
          │
@@ -129,7 +140,7 @@ invoice-processing-gemini/
 │  Validate        │   ← Python checks against ORIGINAL data:
 │  independently   │     - invoice ID match
 └────────┬─────────┘     - amount match (with tolerance)
-         │               - supplier in DB and trusted
+         │               - supplier in list and trusted
          ▼
 ┌──────────────────┐
 │  Save + summary  │
@@ -143,73 +154,88 @@ invoice-processing-gemini/
 ### 1. Gemini extracts facts, Python makes decisions
 
 The model is asked **only** to extract structured data from the invoice
-image. It is *not* asked whether the invoice should be approved.
-Approval logic lives entirely in `validation.py` as deterministic Python
-code that can be unit-tested, debugged, and audited.
+image — `invoice_id`, supplier, amounts, line items. It is *not* asked
+whether the invoice should be approved. The decision logic lives entirely
+in `validation.py` as deterministic Python code that independently compares
+those facts against the webhook and supplier data.
 
 This is the most important design choice in the project. A common
 anti-pattern in AI demos is letting the model decide its own
-trustworthiness (e.g. asking it "should this be approved?"). That
-collapses extraction and decision-making into one untraceable step.
-Separating them gives every decision a clear, inspectable reason.
+trustworthiness (e.g. asking it "should this be approved?"). That collapses
+extraction and decision-making into one untraceable step. Separating them
+gives every decision a clear, inspectable reason.
 
-### 2. PII is anonymized before the AI call
-
-All text fields sent to the external AI go through `Anonymizer` first.
-Email addresses are replaced with `<EMAIL_1>`, phone numbers with
-`<PHONE_1>`, and so on. The mapping is kept in a per-request in-memory
-table. After the AI responds, tokens are replaced back with the original
-values for internal use.
-
-The audit log records *how many* PII items were anonymized and *which
-tokens* were used — but never the original values. This pattern follows
-the pseudonymization model used in regulated industries (banking,
-healthcare, legal).
-
-### 3. Three independent validation checks
+### 2. Three independent validation checks
 
 | Check | What it verifies |
 |---|---|
-| `invoice_id_match` | Image invoice ID equals webhook invoice ID (whitespace and `#` are stripped) |
+| `invoice_id_match` | Image invoice ID equals webhook invoice ID (whitespace and `#` stripped) |
 | `amount_match` | Image total equals webhook expected amount, within a 0.01 tolerance |
-| `supplier_trusted` | Image supplier name maps to a row in the suppliers DB and that row is `trusted=True` |
+| `supplier_trusted` | Image supplier name maps to a row in the supplier list and that row is `trusted=True` |
 
 A `REVIEW` recommendation is produced when some — but not all — checks
-pass. This third zone is what makes the system useful in practice:
-real invoices are rarely cleanly good or bad.
+pass. This third zone is what makes the system useful in practice: real
+invoices are rarely cleanly good or bad.
 
-### 4. Currency normalization
+### 3. Currency normalization
 
-Gemini returns currency inconsistently — sometimes as `USD`, sometimes
-as `$`. A normalization step maps symbols and variants to ISO 4217 codes
-before validation, so downstream code can rely on a canonical format.
+Gemini returns currency inconsistently — sometimes as `USD`, sometimes as
+`$`. That is expected: the same input can produce different output across
+calls. This is exactly why validation must be deterministic — if it relied
+on Gemini's output directly, the system would be unstable. A normalization
+step maps symbols to ISO 4217 codes before validation, so the system
+always returns a canonical `USD`.
 
-### 5. Configuration via `.env`, not hard-coded keys
+### 4. Configuration via `.env`, not hard-coded keys
 
 The API key is never in the source code. It is loaded from `.env` via
 `python-dotenv` and accessed through `os.environ`. The `.env` file is
-listed in `.gitignore` from the first commit, so the key never reaches
-the repository.
+listed in `.gitignore` from the first commit, so the key never reaches the
+repository. A committed `.env.example` shows the required structure.
 
-## Limitations
+## The Anonymization Layer
 
-This section is deliberate. The project demonstrates the **technical
-core** of a PII-safe AI pipeline. A production deployment needs much more
-around it.
+The anonymizer (`anonymizer.py`) is a Python class that maintains an
+in-memory mapping table between PII values and placeholder tokens. Each new
+PII value gets a unique token (`<EMAIL_1>`, `<EMAIL_2>`, `<PHONE_1>`);
+repeated values reuse the same token. The module walks through nested data
+structures of any depth and anonymizes only text fields, leaving numbers
+and other types unchanged.
+
+Before text is sent to the external AI, detected PII text fields are
+replaced with tokens. The mapping table stays in memory and is used to
+re-identify the model's response. The audit record stores *how many* PII
+items were anonymized and *which tokens* were used — but never the original
+values.
+
+## Scope and Limitations
+
+This section is deliberate, and it is the most honest part of the project.
+The pipeline demonstrates the **technical principle** of text PII
+anonymization. It does not claim to be GDPR-complete, and the gaps below
+are intentional rather than accidental.
+
+**The most sensitive PII is in the image, and it is not masked.** The
+invoice image contains the customer's name, address, email, and phone — and
+the image is sent to Gemini as-is. The text anonymization protects the
+*metadata* (email/webhook fields) but not the *most sensitive data*, which
+lives in the image. A real-world solution would start with image
+processing, not text.
 
 | Limitation | What is missing | What production would need |
 |---|---|---|
-| **Image PII** | The invoice image is sent to Gemini as-is | OCR + bounding-box masking of sensitive regions |
-| **Name detection** | Regex finds emails and phones, not person names | NER-based detection (e.g. Microsoft Presidio, spaCy) |
-| **False positives** | Telephone regex was initially matching dates (now fixed); other edge cases possible | Battle-tested PII libraries handle these |
-| **In-memory mapping** | Token-to-value mapping lives in memory only | Encrypted persistent store with access controls |
-| **Audit logging** | Audit data is bundled in the result JSON | Separate, append-only, access-controlled log |
-| **Human-in-the-loop** | `REVIEW` decisions are flagged but not routed | UI / workflow for human reviewers |
-| **Legal compliance** | No GDPR DPA, DPIA, SOC 2 / ISO 27001, DPO involvement | All of the above, plus jurisdictional analysis |
-| **Scale** | Single invoice per run | Queue-based ingestion, retry logic, rate limiting |
+| **Image PII** | The invoice image is sent to Gemini unmodified | OCR + bounding-box masking of sensitive regions — this is where a serious solution would begin |
+| **Name & address detection** | Regex finds emails and phones, not names or addresses | NER-based detection (e.g. Microsoft Presidio, spaCy) that understands context |
+| **Regex false positives** | The phone pattern initially matched dates like `2024-11-15` (now fixed); other edge cases remain possible | Battle-tested PII libraries handle these |
+| **In-memory mapping** | The token-to-value mapping lives in memory only | Encrypted persistent store with access controls |
+| **Audit logging** | Audit data is bundled into the result JSON | A separate, append-only, access-controlled log |
+| **Human-in-the-loop** | `REVIEW` decisions are flagged but not routed anywhere | A UI / workflow for human reviewers |
+| **Legal compliance** | No GDPR DPA, DPIA, SOC 2 / ISO 27001, or DPO involvement | All of the above, plus jurisdictional analysis |
 
-The project is suitable for portfolio and educational use. It is *not*
-a drop-in production tool.
+The project is suitable for portfolio and educational use. It is *not* a
+drop-in production tool, and the framing above is intentional: recognizing
+where the real problem lies (the image) is more valuable than claiming a
+completeness the code does not have.
 
 ## Sample Output
 
@@ -235,7 +261,7 @@ Recommendation: APPROVE
 ============================================================
 ```
 
-`REJECT`/`REVIEW` scenario (mismatching webhook data):
+`REVIEW` scenario (mismatching webhook data):
 
 ```
 ============================================================
@@ -265,39 +291,37 @@ model.
 
 | Problem | Solution |
 |---|---|
-| Earlier Colab version had Gemini making approval decisions | Split into extraction (Gemini) + validation (Python) so decisions are deterministic and auditable |
+| Phone regex matched ISO dates like `2024-11-15` as phone numbers | Tightened the pattern to require either a `+` country-code prefix or US-style parentheses around the area code — though this only patches a symptom; the real fix is context-aware NER |
 | API failures produced cryptic `KeyError` exceptions | Wrapped API calls in `try/except` with `response.raise_for_status()` and structured `RuntimeError` re-raises |
-| Phone regex was matching ISO dates like `2024-11-15` as phone numbers | Tightened the pattern to require either a `+` country code prefix or US-style parentheses around the area code |
 | Gemini returned currency inconsistently (`$` vs `USD`) | Added a normalization map to ISO 4217 codes before validation |
-| Moving the project folder broke the virtual environment | `requirements.txt` allowed the venv to be recreated from scratch in the new location |
-| Original Gemini 2.0 model was retired by OpenRouter | Diagnosed via a model-list endpoint, switched to `google/gemini-2.5-flash` |
 | Floating-point comparison of amounts gave false mismatches | Compared with a 0.01 tolerance instead of `==` |
+| The Gemini 2.0 model was retired by OpenRouter mid-project | Diagnosed via the `/models` endpoint, switched to `google/gemini-2.5-flash` |
+| Moving the project folder broke the virtual environment | Recreated the venv from scratch using `requirements.txt` — which is exactly why pinned dependencies matter from day one |
 
 ## Key Concepts Demonstrated
 
 - **Multimodal AI integration** — sending image + text in a single API request
-- **PII pseudonymization** — pre-call anonymization with post-call re-identification
+- **PII pseudonymization** — pre-call anonymization with post-call re-identification (text scope)
 - **Separation of concerns** — extraction, validation, anonymization, and orchestration each in their own module
 - **Independent validation** — Python decides, the AI only extracts
 - **Structured error handling** — typed exceptions at each pipeline stage
 - **Configuration via environment variables** — no secrets in source code
-- **Auditable output** — every decision includes the reason in the result file
-- **Reproducible setup** — pinned dependencies, virtual environment, location-independent paths
+- **Auditable output** — every decision includes its reason in the result file
+- **Honest scoping** — documenting what the system does *not* do, and why
 
 ## Dataset
 
 The invoice image is a sample template from
 [InvoiceSimple.com](https://www.invoicesimple.com/), used for demonstration
-purposes only. All names and amounts in the image are fictional.
-The email and webhook JSON files are hand-crafted to produce two distinct
-test scenarios (`approve` and `reject`).
+purposes only. All names and amounts in the image are fictional. The email
+and webhook JSON files are hand-crafted to produce two distinct test
+scenarios (`approve` and `reject`).
 
 ## Possible Improvements
 
+- Add image PII masking via OCR + bounding boxes — the highest-impact next step
+- Replace regex-based PII detection with Microsoft Presidio for name/address coverage
 - Add a third scenario with an unknown supplier for a clean `REJECT` decision
-- Replace regex-based PII detection with Microsoft Presidio for production-grade accuracy
-- Add image PII masking via OCR + bounding boxes
 - Implement a proper append-only audit log with access controls
 - Add unit tests for `validation.py` and `anonymizer.py`
-- Containerize the pipeline with Docker for portable deployment
-- Add a Streamlit UI that lets a reviewer approve `REVIEW` decisions manually
+- Add a UI that lets a reviewer act on `REVIEW` decisions manually
