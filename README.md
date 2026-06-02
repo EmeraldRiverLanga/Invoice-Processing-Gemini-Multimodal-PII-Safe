@@ -81,7 +81,7 @@ in `output/`.
 ## Project Structure
 
 ```
-invoice-processing-gemini/
+Invoice-Processing-Gemini-Multimodal-PII-Safe/
 ├── src/
 │   ├── __init__.py
 │   ├── sources.py          # Data source loaders (email, webhook, suppliers, image)
@@ -103,6 +103,7 @@ invoice-processing-gemini/
 ├── screenshots/
 ├── .env.example
 ├── .gitignore
+├── darba_apraksts.md       # Work description (Latvian)
 ├── requirements.txt
 └── README.md
 ```
@@ -120,8 +121,8 @@ invoice-processing-gemini/
          │
          ▼
 ┌──────────────────┐
-│  Anonymize text  │   ← emails / phones in text fields → <EMAIL_1> tokens
-│  PII             │     (the image is NOT anonymized — see Limitations)
+│ Anonymize text   │   ← emails / phones in text fields → <EMAIL_1> tokens
+│ PII (not image)  │   ← the image is sent as-is; see Limitations
 └────────┬─────────┘
          │
          ▼
@@ -286,6 +287,14 @@ Recommendation: REVIEW
 The `details` field on each check is what makes the output auditable —
 every decision has a reason that can be inspected without re-running the
 model.
+
+> **Why does `--scenario reject` produce `REVIEW` and not `REJECT`?**
+> The supplier (Stanford Plumbing & Heating) is present and trusted in the
+> shared supplier list, so the `supplier_trusted` check passes even in the
+> reject scenario. With two checks failing and one passing, the system
+> correctly lands in the `REVIEW` middle ground rather than an outright
+> `REJECT`. A clean `REJECT` would require a scenario whose supplier is not
+> in the list — see Possible Improvements.
 
 ## Challenges & Solutions
 
